@@ -15,6 +15,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -57,10 +58,9 @@ func init() {
 	}
 	db_user := os.Getenv("ISUBATA_DB_USER")
 	if db_user == "" {
-		db_user = "isucon"
+		db_user = "root"
 	}
-	db_password := "isucon"
-	// db_password := os.Getenv("ISUBATA_DB_PASSWORD")
+	db_password := os.Getenv("ISUBATA_DB_PASSWORD")
 	if db_password != "" {
 		db_password = ":" + db_password
 	}
@@ -451,33 +451,59 @@ func fetchUnread(c echo.Context) error {
 	}
 
 	resp := []map[string]interface{}{}
+	respc := make(chan *map[string]interface{})
 
-	for _, chID := range channels {
-		lastID, err := queryHaveRead(userID, chID)
-		if err != nil {
-			return err
+	wg := &sync.WaitGroup{}
+	go createResponse(userID, channels, respc, wg)
+	for res := range respc {
+		if res == nil {
+			continue
 		}
-
-		var cnt int64
-		if lastID > 0 {
-			err = db.Get(&cnt,
-				"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ? AND ? < id",
-				chID, lastID)
-		} else {
-			err = db.Get(&cnt,
-				"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ?",
-				chID)
-		}
-		if err != nil {
-			return err
-		}
-		r := map[string]interface{}{
-			"channel_id": chID,
-			"unread":     cnt}
-		resp = append(resp, r)
+		resp = append(resp, *res)
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+func createResponse(userId int64, channnes []int64, c chan *map[string]interface{}, wg *sync.WaitGroup) {
+	for _, chID := range channnes {
+		chID := chID
+		wg.Add(1)
+		go createResponseInGoroutine(userId, chID, c, wg)
+	}
+	wg.Wait()
+
+	close(c)
+	return
+}
+
+func createResponseInGoroutine(userId,chID int64, c chan *map[string]interface{}, wg *sync.WaitGroup) {
+	lastID, err := queryHaveRead(userId, chID)
+	if err != nil {
+		wg.Done()
+		return
+	}
+
+	var cnt int64
+	if lastID > 0 {
+		err = db.Get(&cnt,
+			"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ? AND ? < id",
+			chID, lastID)
+	} else {
+		err = db.Get(&cnt,
+			"SELECT COUNT(*) as cnt FROM message WHERE channel_id = ?",
+			chID)
+	}
+	if err != nil {
+		wg.Done()
+		return
+	}
+	r := map[string]interface{}{
+		"channel_id": chID,
+		"unread":     cnt}
+	c <- &r
+	wg.Done()
+	return
 }
 
 func getHistory(c echo.Context) error {
@@ -758,4 +784,5 @@ func main() {
 	e.GET("/icons/:file_name", getIcon)
 
 	e.Start(":5000")
+}
 }
