@@ -9,3 +9,5 @@ webapp/perl/local
 webapp/go/src/isubata/go.sum
 isucon7-qualify.iml
 .go-version
+bench/results/result_*.json
+webapp/go/src/isubata/log/*.log
