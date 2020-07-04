@@ -7,3 +7,5 @@ webapp/php/vendor
 bench/isucon7q-initial-dataset.sql.gz
 webapp/perl/local
 webapp/go/src/isubata/go.sum
+isucon7-qualify.iml
+.go-version
